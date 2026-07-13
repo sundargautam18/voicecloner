@@ -10,3 +10,4 @@ INFO:root:TTS Model loaded successfully. Its size is 438.0 MB
 INFO:voiceclone:Model loaded on device cpu
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:56281 - "GET /api/voices HTTP/1.1" 200 OK

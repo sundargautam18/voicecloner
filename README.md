@@ -26,6 +26,15 @@ If activation is blocked by execution policy, run once as your user (not admin):
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```
 
+### Windows (Git Bash / WSL-style shell)
+
+```bash
+cd voiceclone
+python -m venv .venv
+source .venv/Scripts/activate
+pip install -r requirements.txt
+```
+
 ### Linux / macOS (bash/zsh)
 
 ```bash
@@ -37,10 +46,10 @@ pip install -r requirements.txt
 
 ## Run
 
-With the virtual environment activated:
+With the virtual environment activated, run the server with **`python -m uvicorn`** rather than the bare `uvicorn` command — on Windows, pip-installed scripts often land in a directory that isn't on `PATH` (that's the cause of a `uvicorn: command not found` / `'uvicorn' is not recognized` error), while `python -m uvicorn` always works because it just asks the active Python interpreter to run the module:
 
 ```bash
-uvicorn backend.app:app --host 0.0.0.0 --port 8000
+python -m uvicorn backend.app:app --host 0.0.0.0 --port 8000
 ```
 
 Then open http://localhost:8000 in your browser.
@@ -53,18 +62,18 @@ To stop the server, press `Ctrl+C`. To leave the virtual environment afterwards,
 
 You don't need to reinstall dependencies each time — just re-activate the existing `.venv` and start the server:
 
-**Windows:**
+**Windows (PowerShell):**
 ```powershell
 cd voiceclone
 .\.venv\Scripts\Activate.ps1
-uvicorn backend.app:app --host 0.0.0.0 --port 8000
+python -m uvicorn backend.app:app --host 0.0.0.0 --port 8000
 ```
 
-**Linux/macOS:**
+**Windows (Git Bash) / Linux / macOS:**
 ```bash
 cd voiceclone
-source .venv/bin/activate
-uvicorn backend.app:app --host 0.0.0.0 --port 8000
+source .venv/Scripts/activate   # Linux/macOS: .venv/bin/activate
+python -m uvicorn backend.app:app --host 0.0.0.0 --port 8000
 ```
 
 ## Usage
@@ -95,4 +104,5 @@ requirements.txt   Python dependencies
 - **Slow first generation**: expected — the model and default voice sample are being downloaded and cached.
 - **Microphone recording doesn't work**: browsers only allow mic access on `localhost` or HTTPS. Access the app via `http://localhost:8000`, not a raw IP address.
 - **`ModuleNotFoundError` on startup**: the virtual environment isn't activated, or `pip install -r requirements.txt` wasn't run inside it. Re-check the Setup steps above.
-- **Port already in use**: change the port, e.g. `uvicorn backend.app:app --port 8001`.
+- **`uvicorn: command not found` / `'uvicorn' is not recognized`**: use `python -m uvicorn ...` instead of the bare `uvicorn` command (see Run section above).
+- **Port already in use**: change the port, e.g. `python -m uvicorn backend.app:app --port 8001`.

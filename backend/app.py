@@ -3,9 +3,12 @@
 import io
 import json
 import logging
+import math
 import os
+import re
 import uuid
 import wave
+import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -25,10 +28,13 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 VOICES_DIR = ROOT_DIR / "voices"
 FRONTEND_DIR = ROOT_DIR / "frontend"
 METADATA_PATH = VOICES_DIR / "metadata.json"
+APP_SETTINGS_PATH = ROOT_DIR / "settings.json"
 VOICES_DIR.mkdir(exist_ok=True)
 
 BUILTIN_VOICES = sorted(_ORIGINS_OF_PREDEFINED_VOICES.keys())
 ALLOWED_UPLOAD_SUFFIXES = {".wav", ".mp3", ".flac", ".ogg"}
+MAX_STORYBOARD_IMAGES = 12
+GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image"
 
 state = {"model": None, "voice_states": {}}
 
@@ -41,6 +47,30 @@ def load_metadata() -> dict:
 
 def save_metadata(metadata: dict) -> None:
     METADATA_PATH.write_text(json.dumps(metadata, indent=2))
+
+
+def load_app_settings() -> dict:
+    if APP_SETTINGS_PATH.exists():
+        return json.loads(APP_SETTINGS_PATH.read_text())
+    return {}
+
+
+def save_app_settings(data: dict) -> None:
+    APP_SETTINGS_PATH.write_text(json.dumps(data, indent=2))
+
+
+def get_gemini_api_key() -> str | None:
+    return load_app_settings().get("gemini_api_key") or os.environ.get("GEMINI_API_KEY") or None
+
+
+def split_into_segments(text: str, max_segments: int = MAX_STORYBOARD_IMAGES) -> list[str]:
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text.strip()) if s.strip()]
+    if not sentences:
+        return []
+    if len(sentences) <= max_segments:
+        return sentences
+    bucket_size = math.ceil(len(sentences) / max_segments)
+    return [" ".join(sentences[i : i + bucket_size]) for i in range(0, len(sentences), bucket_size)]
 
 
 @asynccontextmanager
@@ -189,20 +219,109 @@ def get_settings():
             username = huggingface_hub.whoami(token=token).get("name")
         except Exception:
             username = None
-    return {"hf_token_configured": bool(token), "hf_username": username}
+    return {
+        "hf_token_configured": bool(token),
+        "hf_username": username,
+        "gemini_api_key_configured": bool(get_gemini_api_key()),
+    }
 
 
 @app.post("/api/settings")
 def set_settings(payload: dict = Body(...)):
-    token = (payload.get("hf_token") or "").strip()
-    if not token:
-        raise HTTPException(status_code=400, detail="Token cannot be empty.")
+    hf_token = (payload.get("hf_token") or "").strip()
+    gemini_api_key = (payload.get("gemini_api_key") or "").strip()
+    if not hf_token and not gemini_api_key:
+        raise HTTPException(status_code=400, detail="Provide a Hugging Face token and/or a Gemini API key.")
+
+    if hf_token:
+        try:
+            huggingface_hub.login(token=hf_token, add_to_git_credential=False, skip_if_logged_in=False)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Could not validate Hugging Face token: {exc}") from exc
+
+    if gemini_api_key:
+        app_settings = load_app_settings()
+        app_settings["gemini_api_key"] = gemini_api_key
+        save_app_settings(app_settings)
+
+    current_token = huggingface_hub.get_token()
+    username = None
+    if current_token:
+        try:
+            username = huggingface_hub.whoami(token=current_token).get("name")
+        except Exception:
+            username = None
+
+    return {
+        "hf_token_configured": bool(current_token),
+        "hf_username": username,
+        "gemini_api_key_configured": bool(get_gemini_api_key()),
+    }
+
+
+@app.post("/api/storyboard")
+def generate_storyboard(text: str = Form(...)):
+    text = text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Text cannot be empty.")
+
+    api_key = get_gemini_api_key()
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Gemini API key not configured. Add it in Settings first.",
+        )
+
     try:
-        huggingface_hub.login(token=token, add_to_git_credential=False, skip_if_logged_in=False)
-        username = huggingface_hub.whoami(token=token).get("name")
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Could not validate token: {exc}") from exc
-    return {"hf_token_configured": True, "hf_username": username}
+        from google import genai
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=500, detail="google-genai package is not installed. Run pip install -r requirements.txt."
+        ) from exc
+
+    segments = split_into_segments(text)
+    if not segments:
+        raise HTTPException(status_code=400, detail="No text to generate images from.")
+
+    client = genai.Client(api_key=api_key)
+    zip_buffer = io.BytesIO()
+    manifest = []
+
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for i, segment in enumerate(segments, start=1):
+            prompt = (
+                "Create a photorealistic, cinematic still that visually depicts this moment "
+                f"from a narration, suitable as a b-roll frame for video editing: {segment}"
+            )
+            try:
+                response = client.models.generate_content(model=GEMINI_IMAGE_MODEL, contents=[prompt])
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=502, detail=f"Gemini image generation failed on segment {i}: {exc}"
+                ) from exc
+
+            image_bytes = None
+            for part in response.candidates[0].content.parts:
+                inline_data = getattr(part, "inline_data", None)
+                if inline_data and inline_data.data:
+                    image_bytes = inline_data.data
+                    break
+
+            if image_bytes is None:
+                raise HTTPException(status_code=502, detail=f"Gemini did not return an image for segment {i}.")
+
+            filename = f"{i:02d}.png"
+            zf.writestr(filename, image_bytes)
+            manifest.append({"file": filename, "text": segment})
+
+        zf.writestr("manifest.json", json.dumps(manifest, indent=2))
+
+    zip_buffer.seek(0)
+    return Response(
+        content=zip_buffer.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=storyboard.zip"},
+    )
 
 
 app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")

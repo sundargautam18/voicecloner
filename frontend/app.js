@@ -35,6 +35,11 @@ const settingsStatusBadgeEl = document.getElementById("settings-status-badge");
 const settingsStatusEl = document.getElementById("settings-status");
 const hfTokenInput = document.getElementById("hf-token-input");
 const saveSettingsBtn = document.getElementById("save-settings-btn");
+const geminiStatusBadgeEl = document.getElementById("gemini-status-badge");
+const geminiKeyInput = document.getElementById("gemini-key-input");
+
+const storyboardBtn = document.getElementById("storyboard-btn");
+const storyboardStatusEl = document.getElementById("storyboard-status");
 
 async function loadVoices() {
   const res = await fetch(`${API}/voices`);
@@ -335,31 +340,80 @@ function renderSettingsBadge(data) {
     settingsStatusBadgeEl.textContent = "Not configured — using built-in voices only";
     settingsStatusBadgeEl.className = "badge missing";
   }
+
+  if (data.gemini_api_key_configured) {
+    geminiStatusBadgeEl.textContent = "✓ Gemini API key configured";
+    geminiStatusBadgeEl.className = "badge ok";
+  } else {
+    geminiStatusBadgeEl.textContent = "Not configured — photo sequence generation disabled";
+    geminiStatusBadgeEl.className = "badge missing";
+  }
 }
 
 saveSettingsBtn.addEventListener("click", async () => {
-  const token = hfTokenInput.value.trim();
-  if (!token) {
-    setStatus(settingsStatusEl, "Please paste a token.", true);
+  const hfToken = hfTokenInput.value.trim();
+  const geminiKey = geminiKeyInput.value.trim();
+  if (!hfToken && !geminiKey) {
+    setStatus(settingsStatusEl, "Please paste at least one token/key.", true);
     return;
   }
   saveSettingsBtn.disabled = true;
-  setStatus(settingsStatusEl, "Validating token...");
+  setStatus(settingsStatusEl, "Saving...");
   try {
+    const payload = {};
+    if (hfToken) payload.hf_token = hfToken;
+    if (geminiKey) payload.gemini_api_key = geminiKey;
     const res = await fetch(`${API}/settings`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ hf_token: token }),
+      body: JSON.stringify(payload),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "Could not save token.");
+    if (!res.ok) throw new Error(data.detail || "Could not save settings.");
     renderSettingsBadge(data);
-    setStatus(settingsStatusEl, "Token saved.");
+    setStatus(settingsStatusEl, "Saved.");
     hfTokenInput.value = "";
+    geminiKeyInput.value = "";
   } catch (err) {
     setStatus(settingsStatusEl, err.message, true);
   } finally {
     saveSettingsBtn.disabled = false;
+  }
+});
+
+// ---- Storyboard (Gemini photo sequence) ----
+
+storyboardBtn.addEventListener("click", async () => {
+  const text = textInputEl.value.trim();
+  if (!text) {
+    setStatus(storyboardStatusEl, "Please enter some text first.", true);
+    return;
+  }
+
+  storyboardBtn.disabled = true;
+  setStatus(storyboardStatusEl, "Generating matching photos with Gemini... this can take a while.");
+
+  try {
+    const form = new FormData();
+    form.append("text", text);
+    const res = await fetch(`${API}/storyboard`, { method: "POST", body: form });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Photo generation failed.");
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "storyboard.zip";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setStatus(storyboardStatusEl, "Done — storyboard.zip downloaded.");
+  } catch (err) {
+    setStatus(storyboardStatusEl, err.message, true);
+  } finally {
+    storyboardBtn.disabled = false;
   }
 });
 

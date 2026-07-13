@@ -5,3 +5,4 @@ voices/*.safetensors
 voices/*_raw.*
 voices/metadata.json
 *.wav
+settings.json

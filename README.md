@@ -29,6 +29,17 @@ Then authenticate with **one** of these three equivalent options:
 
 Without one of these, the "Clone a new voice" feature returns a 400 error explaining that voice-cloning weights couldn't be downloaded; the built-in voice catalog still works fine either way.
 
+## Generating a matching photo sequence (Gemini, optional)
+
+After generating speech, you can click "🖼 Generate matching photos (.zip)" to have Google's Gemini turn the narration into a sequence of AI-generated photos (one per sentence, or per group of sentences if the text is long), packaged as a `.zip` — handy as b-roll to drop straight into a video editor alongside the generated audio.
+
+This requires a Gemini API key:
+
+1. Create a free key at https://aistudio.google.com/apikey.
+2. Either paste it into "⚙ Settings" in the sidebar and click "Save settings", or set the `GEMINI_API_KEY` environment variable before starting the server (Windows: `$env:GEMINI_API_KEY = "AIza..."`, Linux/macOS: `export GEMINI_API_KEY=AIza...`).
+
+Without a key, the button returns a 400 error explaining the key isn't configured yet; everything else in the app works fine without it.
+
 ## Setup
 
 Use a virtual environment so the app's dependencies stay isolated from the rest of your system and nothing conflicts with other Python projects.
@@ -128,3 +139,5 @@ requirements.txt   Python dependencies
 - **`uvicorn: command not found` / `'uvicorn' is not recognized`**: use `python -m uvicorn ...` instead of the bare `uvicorn` command (see Run section above).
 - **Port already in use**: change the port, e.g. `python -m uvicorn backend.app:app --port 8001`.
 - **Cloning fails with "could not download the weights for the model with voice cloning"**: you haven't accepted the gated model's terms and/or logged in via `hf auth login` yet — see "Enabling cloning from your own audio" above.
+- **"Gemini API key not configured"**: add a key in Settings or set `GEMINI_API_KEY` — see "Generating a matching photo sequence" above.
+- **Photo sequence generation is slow or fails partway through**: each photo is a separate Gemini API call; longer text produces more images (capped at 12) and takes longer. A failure on one segment (e.g. rate limiting) aborts the whole request — wait a moment and retry.

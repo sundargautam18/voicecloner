@@ -9,8 +9,9 @@ import wave
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import huggingface_hub
 import numpy as np
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
@@ -177,6 +178,31 @@ def generate_speech(text: str = Form(...), voice_id: str = Form(...)):
     audio = model.generate_audio(voice_state, text, copy_state=True)
     wav_bytes = tensor_to_wav_bytes(audio, model.sample_rate)
     return Response(content=wav_bytes, media_type="audio/wav")
+
+
+@app.get("/api/settings")
+def get_settings():
+    token = huggingface_hub.get_token()
+    username = None
+    if token:
+        try:
+            username = huggingface_hub.whoami(token=token).get("name")
+        except Exception:
+            username = None
+    return {"hf_token_configured": bool(token), "hf_username": username}
+
+
+@app.post("/api/settings")
+def set_settings(payload: dict = Body(...)):
+    token = (payload.get("hf_token") or "").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="Token cannot be empty.")
+    try:
+        huggingface_hub.login(token=token, add_to_git_credential=False, skip_if_logged_in=False)
+        username = huggingface_hub.whoami(token=token).get("name")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Could not validate token: {exc}") from exc
+    return {"hf_token_configured": True, "hf_username": username}
 
 
 app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")

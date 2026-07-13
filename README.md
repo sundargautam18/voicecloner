@@ -10,17 +10,24 @@ A local voice-cloning app built on [kyutai-labs/pocket-tts](https://github.com/k
 
 ## Enabling cloning from your own audio (gated model)
 
-The 26 built-in voices work out of the box. Cloning a voice from your own uploaded/recorded audio uses Kyutai's gated voice-cloning weights, which require a one-time Hugging Face login:
+The 26 built-in voices work out of the box. Cloning a voice from your own uploaded/recorded audio uses Kyutai's gated voice-cloning weights, which require a one-time Hugging Face login. First, regardless of which option below you use:
 
 1. Create a free account at https://huggingface.co if you don't have one.
 2. Visit https://huggingface.co/kyutai/pocket-tts and accept the model's terms of use.
-3. Log in locally (inside the activated virtual environment):
-   ```bash
-   hf auth login
-   ```
-   This prompts for a Hugging Face access token (create one at https://huggingface.co/settings/tokens — the default "read" permission is enough).
+3. Create an access token at https://huggingface.co/settings/tokens (the default "read" permission is enough).
 
-Without this step, the "Clone a new voice" feature returns a 400 error explaining that voice-cloning weights couldn't be downloaded; the built-in voice catalog still works fine.
+Then authenticate with **one** of these three equivalent options:
+
+- **In-app (easiest)**: open the app, click "⚙ Settings" in the sidebar, paste the token, and click "Save token". The app validates it against Hugging Face and persists it to the standard Hugging Face credential cache — no restart needed.
+- **CLI, inside the activated virtual environment**:
+  ```bash
+  hf auth login
+  ```
+- **Environment variable**, set before starting the server (useful for containers/CI):
+  - Windows: `$env:HF_TOKEN = "hf_..."`
+  - Linux/macOS: `export HF_TOKEN=hf_...`
+
+Without one of these, the "Clone a new voice" feature returns a 400 error explaining that voice-cloning weights couldn't be downloaded; the built-in voice catalog still works fine either way.
 
 ## Setup
 

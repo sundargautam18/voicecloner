@@ -17,6 +17,10 @@
         <button id="new-voice-btn" class="btn-icon" title="Clone a new voice">+ Clone</button>
       </div>
       <div id="voice-list" class="voice-list"></div>
+
+      <div class="sidebar-footer">
+        <button id="settings-btn" class="btn-secondary full-width">⚙ Settings</button>
+      </div>
     </aside>
 
     <main class="main">
@@ -69,6 +73,40 @@
 
       <div id="clone-status" class="status"></div>
       <button id="submit-clone-btn" class="btn-primary">Clone voice</button>
+    </div>
+  </div>
+
+  <div id="settings-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Settings</h2>
+        <button id="close-settings-btn" class="btn-icon">✕</button>
+      </div>
+
+      <p class="hint">
+        Built-in voices work without any configuration. Cloning a voice from your own
+        uploaded/recorded audio uses Kyutai's gated voice-cloning weights, which need a
+        Hugging Face access token:
+      </p>
+      <ol class="hint steps">
+        <li>Create an account at <a href="https://huggingface.co" target="_blank" rel="noopener">huggingface.co</a> if needed.</li>
+        <li>Accept the terms at <a href="https://huggingface.co/kyutai/pocket-tts" target="_blank" rel="noopener">huggingface.co/kyutai/pocket-tts</a>.</li>
+        <li>Create a read token at <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener">huggingface.co/settings/tokens</a> and paste it below.</li>
+      </ol>
+
+      <div id="settings-status-badge" class="badge"></div>
+
+      <label class="field-label" for="hf-token-input">Hugging Face access token</label>
+      <input id="hf-token-input" type="password" placeholder="hf_..." />
+
+      <div id="settings-status" class="status"></div>
+      <button id="save-settings-btn" class="btn-primary">Save token</button>
+
+      <p class="hint">
+        Alternatively, set the <code>HF_TOKEN</code> environment variable before starting the
+        server, or run <code>hf auth login</code> in the activated virtual environment — either
+        works instead of entering a token here.
+      </p>
     </div>
   </div>
 

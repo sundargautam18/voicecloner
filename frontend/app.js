@@ -28,6 +28,14 @@ const recordBtn = document.getElementById("record-btn");
 const recordTimerEl = document.getElementById("record-timer");
 const recordPreviewEl = document.getElementById("record-preview");
 
+const settingsModalEl = document.getElementById("settings-modal");
+const settingsBtn = document.getElementById("settings-btn");
+const closeSettingsBtn = document.getElementById("close-settings-btn");
+const settingsStatusBadgeEl = document.getElementById("settings-status-badge");
+const settingsStatusEl = document.getElementById("settings-status");
+const hfTokenInput = document.getElementById("hf-token-input");
+const saveSettingsBtn = document.getElementById("save-settings-btn");
+
 async function loadVoices() {
   const res = await fetch(`${API}/voices`);
   const data = await res.json();
@@ -293,6 +301,65 @@ submitCloneBtn.addEventListener("click", async () => {
     setStatus(cloneStatusEl, err.message, true);
   } finally {
     submitCloneBtn.disabled = false;
+  }
+});
+
+// ---- Settings modal ----
+
+settingsBtn.addEventListener("click", () => {
+  settingsModalEl.classList.remove("hidden");
+  loadSettingsStatus();
+});
+
+closeSettingsBtn.addEventListener("click", () => {
+  settingsModalEl.classList.add("hidden");
+  hfTokenInput.value = "";
+  setStatus(settingsStatusEl, "");
+});
+
+settingsModalEl.addEventListener("click", (e) => {
+  if (e.target === settingsModalEl) closeSettingsBtn.click();
+});
+
+async function loadSettingsStatus() {
+  const res = await fetch(`${API}/settings`);
+  const data = await res.json();
+  renderSettingsBadge(data);
+}
+
+function renderSettingsBadge(data) {
+  if (data.hf_token_configured) {
+    settingsStatusBadgeEl.textContent = `✓ Connected as ${data.hf_username || "unknown user"}`;
+    settingsStatusBadgeEl.className = "badge ok";
+  } else {
+    settingsStatusBadgeEl.textContent = "Not configured — using built-in voices only";
+    settingsStatusBadgeEl.className = "badge missing";
+  }
+}
+
+saveSettingsBtn.addEventListener("click", async () => {
+  const token = hfTokenInput.value.trim();
+  if (!token) {
+    setStatus(settingsStatusEl, "Please paste a token.", true);
+    return;
+  }
+  saveSettingsBtn.disabled = true;
+  setStatus(settingsStatusEl, "Validating token...");
+  try {
+    const res = await fetch(`${API}/settings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hf_token: token }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Could not save token.");
+    renderSettingsBadge(data);
+    setStatus(settingsStatusEl, "Token saved.");
+    hfTokenInput.value = "";
+  } catch (err) {
+    setStatus(settingsStatusEl, err.message, true);
+  } finally {
+    saveSettingsBtn.disabled = false;
   }
 });
 

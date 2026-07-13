@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+voices/*.safetensors
+voices/*_raw.*
+voices/metadata.json
+*.wav

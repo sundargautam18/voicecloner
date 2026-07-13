@@ -1,0 +1,12 @@
+INFO:     Started server process [33196]
+INFO:     Waiting for application startup.
+INFO:voiceclone:Loading pocket-tts model (language=default)...
+INFO:pocket_tts.models.tts_model:Loading model from config at C:\Users\sunda\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pocket_tts\config\english.yaml...
+INFO:pocket_tts.conditioners.text:Loading sentencepiece tokenizer from hf://kyutai/pocket-tts-without-voice-cloning/languages/english/tokenizer.model@d29db7978e464fb90cb3359ee0c69a273b9142cc
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/agent-harnesses "HTTP/1.1 200 OK"
+INFO:pocket_tts.models.tts_model:Loading TTSModel weights from hf://kyutai/pocket-tts/languages/english/model.safetensors@39592ff23c9ef80098bb74895d104c26275fe2c9
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/kyutai/pocket-tts/resolve/39592ff23c9ef80098bb74895d104c26275fe2c9/languages/english/model.safetensors "HTTP/1.1 403 Forbidden"
+INFO:root:TTS Model loaded successfully. Its size is 438.0 MB
+INFO:voiceclone:Model loaded on device cpu
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)

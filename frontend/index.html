@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Voice Cloner</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <h1>Voice Cloner</h1>
+      <p class="subtitle">Powered by Pocket TTS</p>
+
+      <div class="section-header">
+        <span>Voices</span>
+        <button id="new-voice-btn" class="btn-icon" title="Clone a new voice">+ Clone</button>
+      </div>
+      <div id="voice-list" class="voice-list"></div>
+    </aside>
+
+    <main class="main">
+      <section class="panel">
+        <h2>Generate speech</h2>
+        <label class="field-label" for="voice-select">Voice</label>
+        <select id="voice-select"></select>
+
+        <label class="field-label" for="text-input">Text</label>
+        <textarea id="text-input" rows="6" placeholder="Type what you want the voice to say...">Hello! This is a clone of my voice, generated entirely on my own computer.</textarea>
+
+        <button id="generate-btn" class="btn-primary">Generate</button>
+
+        <div id="generate-status" class="status"></div>
+
+        <div id="result" class="result hidden">
+          <audio id="audio-player" controls></audio>
+          <a id="download-link" class="btn-secondary" download="voiceclone.wav">Download .wav</a>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="clone-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Clone a new voice</h2>
+        <button id="close-modal-btn" class="btn-icon">✕</button>
+      </div>
+
+      <label class="field-label" for="voice-name-input">Voice name</label>
+      <input id="voice-name-input" type="text" placeholder="e.g. My voice" />
+
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="upload">Upload file</button>
+        <button class="tab-btn" data-tab="record">Record mic</button>
+      </div>
+
+      <div id="tab-upload" class="tab-panel">
+        <p class="hint">A clean 5-30s .wav/.mp3/.flac/.ogg sample of a single speaker works best.</p>
+        <input id="voice-file-input" type="file" accept=".wav,.mp3,.flac,.ogg" />
+      </div>
+
+      <div id="tab-record" class="tab-panel hidden">
+        <p class="hint">Record yourself speaking clearly for 5-15 seconds.</p>
+        <button id="record-btn" class="btn-secondary">● Start recording</button>
+        <span id="record-timer"></span>
+        <audio id="record-preview" controls class="hidden"></audio>
+      </div>
+
+      <div id="clone-status" class="status"></div>
+      <button id="submit-clone-btn" class="btn-primary">Clone voice</button>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

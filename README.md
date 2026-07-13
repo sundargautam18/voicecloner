@@ -8,6 +8,20 @@ A local voice-cloning app built on [kyutai-labs/pocket-tts](https://github.com/k
 - ~2 GB free disk space (PyTorch + model weights)
 - Internet access on first run only, to download the Pocket TTS model and built-in voice samples from Hugging Face
 
+## Enabling cloning from your own audio (gated model)
+
+The 26 built-in voices work out of the box. Cloning a voice from your own uploaded/recorded audio uses Kyutai's gated voice-cloning weights, which require a one-time Hugging Face login:
+
+1. Create a free account at https://huggingface.co if you don't have one.
+2. Visit https://huggingface.co/kyutai/pocket-tts and accept the model's terms of use.
+3. Log in locally (inside the activated virtual environment):
+   ```bash
+   hf auth login
+   ```
+   This prompts for a Hugging Face access token (create one at https://huggingface.co/settings/tokens — the default "read" permission is enough).
+
+Without this step, the "Clone a new voice" feature returns a 400 error explaining that voice-cloning weights couldn't be downloaded; the built-in voice catalog still works fine.
+
 ## Setup
 
 Use a virtual environment so the app's dependencies stay isolated from the rest of your system and nothing conflicts with other Python projects.
@@ -106,3 +120,4 @@ requirements.txt   Python dependencies
 - **`ModuleNotFoundError` on startup**: the virtual environment isn't activated, or `pip install -r requirements.txt` wasn't run inside it. Re-check the Setup steps above.
 - **`uvicorn: command not found` / `'uvicorn' is not recognized`**: use `python -m uvicorn ...` instead of the bare `uvicorn` command (see Run section above).
 - **Port already in use**: change the port, e.g. `python -m uvicorn backend.app:app --port 8001`.
+- **Cloning fails with "could not download the weights for the model with voice cloning"**: you haven't accepted the gated model's terms and/or logged in via `hf auth login` yet — see "Enabling cloning from your own audio" above.

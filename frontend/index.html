@@ -38,13 +38,21 @@
         </div>
         <div id="ai-script-status" class="status"></div>
 
-        <button id="generate-btn" class="btn-primary">Generate</button>
+        <div class="btn-row">
+          <button id="generate-btn" class="btn-primary">Generate</button>
+          <button id="generate-video-btn" class="btn-primary btn-secondary-accent" title="Generate a matching video with Gemini">🎬 Generate video</button>
+        </div>
 
         <div id="generate-status" class="status"></div>
 
         <div id="result" class="result hidden">
           <audio id="audio-player" controls></audio>
           <a id="download-link" class="btn-secondary" download="voiceclone.wav">Download .wav</a>
+        </div>
+
+        <div id="video-result" class="result hidden">
+          <video id="video-player" controls></video>
+          <a id="video-download-link" class="btn-secondary" download="voiceclone.mp4">Download .mp4</a>
         </div>
       </section>
     </main>

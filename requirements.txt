@@ -5,3 +5,4 @@ python-multipart>=0.0.9
 soundfile>=0.12
 python-dotenv>=1.0
 google-genai>=1.0
+imageio-ffmpeg>=0.5

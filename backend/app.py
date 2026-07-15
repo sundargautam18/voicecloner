@@ -4,12 +4,16 @@ import io
 import json
 import logging
 import os
+import subprocess
+import tempfile
+import textwrap
 import uuid
 import wave
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import huggingface_hub
+import imageio_ffmpeg
 import numpy as np
 from dotenv import load_dotenv
 from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
@@ -35,6 +39,13 @@ VOICES_DIR.mkdir(exist_ok=True)
 BUILTIN_VOICES = sorted(_ORIGINS_OF_PREDEFINED_VOICES.keys())
 ALLOWED_UPLOAD_SUFFIXES = {".wav", ".mp3", ".flac", ".ogg"}
 GEMINI_MODEL = "gemini-flash-latest"
+GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image"
+FFMPEG_EXE = imageio_ffmpeg.get_ffmpeg_exe()
+FONT_CANDIDATES = [
+    Path("C:/Windows/Fonts/arial.ttf"),
+    Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+    Path("/System/Library/Fonts/Supplemental/Arial.ttf"),
+]
 
 state = {"model": None, "voice_states": {}}
 
@@ -94,10 +105,15 @@ def get_voice_state(voice_id: str, metadata: dict):
     return voice_state
 
 
-def tensor_to_wav_bytes(audio, sample_rate: int) -> bytes:
+def audio_to_samples(audio) -> np.ndarray:
     samples = audio.detach().cpu().numpy()
     if samples.ndim > 1:
         samples = samples.reshape(-1)
+    return samples
+
+
+def tensor_to_wav_bytes(audio, sample_rate: int) -> bytes:
+    samples = audio_to_samples(audio)
     pcm16 = (np.clip(samples, -1.0, 1.0) * 32767.0).astype(np.int16)
     buffer = io.BytesIO()
     with wave.open(buffer, "wb") as wav_file:
@@ -106,6 +122,92 @@ def tensor_to_wav_bytes(audio, sample_rate: int) -> bytes:
         wav_file.setframerate(sample_rate)
         wav_file.writeframes(pcm16.tobytes())
     return buffer.getvalue()
+
+
+def find_caption_font() -> Path | None:
+    for candidate in FONT_CANDIDATES:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def escape_ffmpeg_path(path: str) -> str:
+    return path.replace("\\", "/").replace(":", "\\:")
+
+
+def generate_background_image(client: "genai.Client", text: str) -> bytes:
+    prompt = (
+        "Create a visually fitting background image for a short narrated video. "
+        f'The narration is about: "{text[:500]}". '
+        "Style: cinematic, atmospheric, high quality, 16:9 widescreen. "
+        "Do not include any text, letters, words, logos, watermarks, or human faces in the image."
+    )
+    try:
+        response = client.models.generate_content(model=GEMINI_IMAGE_MODEL, contents=prompt)
+    except genai_errors.APIError as exc:
+        raise HTTPException(status_code=502, detail=f"Gemini image request failed: {exc}") from exc
+
+    for part in response.candidates[0].content.parts:
+        if part.inline_data and part.inline_data.data:
+            return part.inline_data.data
+    raise HTTPException(status_code=502, detail="Gemini did not return an image.")
+
+
+def build_video_bytes(image_bytes: bytes, wav_bytes: bytes, duration_seconds: float, caption: str) -> bytes:
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        image_path = tmp_path / "background.png"
+        audio_path = tmp_path / "audio.wav"
+        caption_path = tmp_path / "caption.txt"
+        output_path = tmp_path / "output.mp4"
+
+        image_path.write_bytes(image_bytes)
+        audio_path.write_bytes(wav_bytes)
+
+        wrapped_lines = textwrap.wrap(caption, width=42) or [""]
+        fontsize = 32 if len(wrapped_lines) <= 6 else max(20, int(32 * 6 / len(wrapped_lines)))
+        caption_path.write_text("\n".join(wrapped_lines), encoding="utf-8")
+
+        fps = 25
+        frames = max(1, round(duration_seconds * fps))
+
+        video_filter = (
+            "scale=1280:720:force_original_aspect_ratio=increase,"
+            "crop=1280:720,"
+            f"zoompan=z='min(zoom+0.0012,1.2)':d={frames}:s=1280x720:fps={fps},"
+            "setsar=1"
+        )
+
+        drawtext_opts = [
+            f"textfile='{escape_ffmpeg_path(str(caption_path))}'",
+            f"fontsize={fontsize}",
+            "fontcolor=white",
+            "borderw=2",
+            "bordercolor=black@0.7",
+            "line_spacing=6",
+            "x=(w-text_w)/2",
+            "y=h-text_h-50",
+        ]
+        font = find_caption_font()
+        if font:
+            drawtext_opts.insert(0, f"fontfile='{escape_ffmpeg_path(str(font))}'")
+        drawtext_filter = "drawtext=" + ":".join(drawtext_opts)
+
+        cmd = [
+            FFMPEG_EXE, "-y",
+            "-loop", "1", "-i", str(image_path),
+            "-i", str(audio_path),
+            "-filter:v", f"{video_filter},{drawtext_filter}",
+            "-map", "0:v", "-map", "1:a",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "192k",
+            "-shortest", "-movflags", "+faststart",
+            str(output_path),
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise HTTPException(status_code=500, detail=f"Video rendering failed: {result.stderr[-800:]}")
+        return output_path.read_bytes()
 
 
 @app.get("/api/voices")
@@ -184,6 +286,35 @@ def generate_speech(text: str = Form(...), voice_id: str = Form(...)):
     audio = model.generate_audio(voice_state, text, copy_state=True)
     wav_bytes = tensor_to_wav_bytes(audio, model.sample_rate)
     return Response(content=wav_bytes, media_type="audio/wav")
+
+
+@app.post("/api/generate-video")
+def generate_video(text: str = Form(...), voice_id: str = Form(...)):
+    text = text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Text cannot be empty.")
+
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Gemini isn't configured. Set GEMINI_API_KEY in your .env and restart the server.",
+        )
+
+    model = get_model()
+    metadata = load_metadata()
+    voice_state = get_voice_state(voice_id, metadata)
+
+    audio = model.generate_audio(voice_state, text, copy_state=True)
+    samples = audio_to_samples(audio)
+    duration_seconds = len(samples) / model.sample_rate
+    wav_bytes = tensor_to_wav_bytes(audio, model.sample_rate)
+
+    client = genai.Client(api_key=api_key)
+    image_bytes = generate_background_image(client, text)
+    video_bytes = build_video_bytes(image_bytes, wav_bytes, duration_seconds, text)
+
+    return Response(content=video_bytes, media_type="video/mp4")
 
 
 @app.post("/api/script")

@@ -180,6 +180,28 @@ select:focus, input:focus, textarea:focus {
 .btn-primary:hover { background: var(--accent-hover); }
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
+.btn-row {
+  display: flex;
+  gap: 10px;
+}
+
+.btn-row .btn-primary {
+  flex: 1;
+}
+
+.btn-secondary-accent {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.btn-secondary-accent:hover { border-color: var(--accent); background: var(--panel-2); }
+
+#video-result video {
+  width: 100%;
+  border-radius: var(--radius);
+}
+
 .btn-secondary {
   background: var(--panel-2);
   color: var(--text);

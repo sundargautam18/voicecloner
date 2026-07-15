@@ -11,10 +11,14 @@ let isRecording = false;
 const voiceListEl = document.getElementById("voice-list");
 const voiceSelectEl = document.getElementById("voice-select");
 const generateBtn = document.getElementById("generate-btn");
+const generateVideoBtn = document.getElementById("generate-video-btn");
 const generateStatusEl = document.getElementById("generate-status");
 const resultEl = document.getElementById("result");
 const audioPlayerEl = document.getElementById("audio-player");
 const downloadLinkEl = document.getElementById("download-link");
+const videoResultEl = document.getElementById("video-result");
+const videoPlayerEl = document.getElementById("video-player");
+const videoDownloadLinkEl = document.getElementById("video-download-link");
 const textInputEl = document.getElementById("text-input");
 const aiPromptInputEl = document.getElementById("ai-prompt-input");
 const aiScriptBtn = document.getElementById("ai-script-btn");
@@ -149,6 +153,47 @@ generateBtn.addEventListener("click", async () => {
   } catch (err) {
     setStatus(generateStatusEl, err.message, true);
   } finally {
+    generateBtn.disabled = false;
+  }
+});
+
+generateVideoBtn.addEventListener("click", async () => {
+  const text = textInputEl.value.trim();
+  const voiceId = voiceSelectEl.value;
+  if (!text) {
+    setStatus(generateStatusEl, "Please enter some text.", true);
+    return;
+  }
+  if (!voiceId) {
+    setStatus(generateStatusEl, "Please select a voice.", true);
+    return;
+  }
+
+  generateVideoBtn.disabled = true;
+  generateBtn.disabled = true;
+  setStatus(generateStatusEl, "Generating video... Gemini is drawing a background, this can take a bit.");
+  videoResultEl.classList.add("hidden");
+
+  try {
+    const form = new FormData();
+    form.append("text", text);
+    form.append("voice_id", voiceId);
+    const res = await fetch(`${API}/generate-video`, { method: "POST", body: form });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Video generation failed.");
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    videoPlayerEl.src = url;
+    videoDownloadLinkEl.href = url;
+    videoResultEl.classList.remove("hidden");
+    setStatus(generateStatusEl, "Done.");
+    videoPlayerEl.play();
+  } catch (err) {
+    setStatus(generateStatusEl, err.message, true);
+  } finally {
+    generateVideoBtn.disabled = false;
     generateBtn.disabled = false;
   }
 });

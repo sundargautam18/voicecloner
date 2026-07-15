@@ -109,6 +109,7 @@ python -m uvicorn backend.app:app --host 0.0.0.0 --port 8000
 - `POCKET_TTS_LANGUAGE` env var selects the model language: `english` (default), `french_24l`, `german_24l`, `italian_24l`, `spanish_24l`, `portuguese_24l`. Set it before starting the server, e.g.:
   - Windows: `$env:POCKET_TTS_LANGUAGE = "french_24l"`
   - Linux/macOS: `export POCKET_TTS_LANGUAGE=french_24l`
+- `GEMINI_API_KEY` enables the "✨ Write it" script-assist button: describe a topic and Gemini drafts the text for the TTS voice to read. Get a key from [Google AI Studio](https://aistudio.google.com/apikey) and put it in a `.env` file in the project root (`GEMINI_API_KEY=...`) or set it as an environment variable before starting the server. Without it, the rest of the app works as normal — only the script-assist button is disabled.
 
 ## Project layout
 

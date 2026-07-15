@@ -153,6 +153,20 @@ select:focus, input:focus, textarea:focus {
   border: 1px solid var(--border);
 }
 
+.ai-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ai-row input {
+  flex: 1;
+}
+
+.ai-row .btn-secondary {
+  white-space: nowrap;
+}
+
 .btn-primary {
   margin-top: 22px;
   background: var(--accent);

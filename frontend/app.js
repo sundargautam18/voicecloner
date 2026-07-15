@@ -16,6 +16,9 @@ const resultEl = document.getElementById("result");
 const audioPlayerEl = document.getElementById("audio-player");
 const downloadLinkEl = document.getElementById("download-link");
 const textInputEl = document.getElementById("text-input");
+const aiPromptInputEl = document.getElementById("ai-prompt-input");
+const aiScriptBtn = document.getElementById("ai-script-btn");
+const aiScriptStatusEl = document.getElementById("ai-script-status");
 
 const modalEl = document.getElementById("clone-modal");
 const newVoiceBtn = document.getElementById("new-voice-btn");
@@ -35,6 +38,7 @@ const settingsStatusBadgeEl = document.getElementById("settings-status-badge");
 const settingsStatusEl = document.getElementById("settings-status");
 const hfTokenInput = document.getElementById("hf-token-input");
 const saveSettingsBtn = document.getElementById("save-settings-btn");
+const geminiStatusBadgeEl = document.getElementById("gemini-status-badge");
 
 async function loadVoices() {
   const res = await fetch(`${API}/voices`);
@@ -82,6 +86,33 @@ async function deleteVoice(voiceId) {
   await fetch(`${API}/voices/${voiceId}`, { method: "DELETE" });
   await loadVoices();
 }
+
+aiScriptBtn.addEventListener("click", async () => {
+  const prompt = aiPromptInputEl.value.trim();
+  if (!prompt) {
+    setStatus(aiScriptStatusEl, "Describe a topic first.", true);
+    return;
+  }
+
+  aiScriptBtn.disabled = true;
+  setStatus(aiScriptStatusEl, "Asking Gemini...");
+
+  try {
+    const form = new FormData();
+    form.append("prompt", prompt);
+    const res = await fetch(`${API}/script`, { method: "POST", body: form });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.detail || "Script generation failed.");
+    }
+    textInputEl.value = data.text;
+    setStatus(aiScriptStatusEl, "Done.");
+  } catch (err) {
+    setStatus(aiScriptStatusEl, err.message, true);
+  } finally {
+    aiScriptBtn.disabled = false;
+  }
+});
 
 generateBtn.addEventListener("click", async () => {
   const text = textInputEl.value.trim();
@@ -325,6 +356,17 @@ async function loadSettingsStatus() {
   const res = await fetch(`${API}/settings`);
   const data = await res.json();
   renderSettingsBadge(data);
+  renderGeminiBadge(data);
+}
+
+function renderGeminiBadge(data) {
+  if (data.gemini_configured) {
+    geminiStatusBadgeEl.textContent = "✓ Gemini configured";
+    geminiStatusBadgeEl.className = "badge ok";
+  } else {
+    geminiStatusBadgeEl.textContent = "Not configured — script assist disabled";
+    geminiStatusBadgeEl.className = "badge missing";
+  }
 }
 
 function renderSettingsBadge(data) {

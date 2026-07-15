@@ -11,12 +11,17 @@ from pathlib import Path
 
 import huggingface_hub
 import numpy as np
+from dotenv import load_dotenv
 from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
+from google import genai
+from google.genai import errors as genai_errors
 from pocket_tts import TTSModel
 from pocket_tts.utils.utils import _ORIGINS_OF_PREDEFINED_VOICES
+
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("voiceclone")
@@ -29,6 +34,7 @@ VOICES_DIR.mkdir(exist_ok=True)
 
 BUILTIN_VOICES = sorted(_ORIGINS_OF_PREDEFINED_VOICES.keys())
 ALLOWED_UPLOAD_SUFFIXES = {".wav", ".mp3", ".flac", ".ogg"}
+GEMINI_MODEL = "gemini-flash-latest"
 
 state = {"model": None, "voice_states": {}}
 
@@ -180,6 +186,39 @@ def generate_speech(text: str = Form(...), voice_id: str = Form(...)):
     return Response(content=wav_bytes, media_type="audio/wav")
 
 
+@app.post("/api/script")
+def generate_script(prompt: str = Form(...)):
+    prompt = prompt.strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Prompt cannot be empty.")
+
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Gemini isn't configured. Set GEMINI_API_KEY in your .env and restart the server.",
+        )
+
+    client = genai.Client(api_key=api_key)
+    try:
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=(
+                "Write a short script meant to be read aloud by a text-to-speech voice. "
+                "Return only the spoken text itself, with no titles, labels, stage directions, "
+                "or markdown formatting.\n\n"
+                f"Topic: {prompt}"
+            ),
+        )
+    except genai_errors.APIError as exc:
+        raise HTTPException(status_code=502, detail=f"Gemini request failed: {exc}") from exc
+
+    text = (response.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=502, detail="Gemini returned an empty response.")
+    return {"text": text}
+
+
 @app.get("/api/settings")
 def get_settings():
     token = huggingface_hub.get_token()
@@ -189,7 +228,7 @@ def get_settings():
             username = huggingface_hub.whoami(token=token).get("name")
         except Exception:
             username = None
-    return {"hf_token_configured": bool(token), "hf_username": username}
+    return {"hf_token_configured": bool(token), "hf_username": username, "gemini_configured": bool(os.environ.get("GEMINI_API_KEY"))}
 
 
 @app.post("/api/settings")

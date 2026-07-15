@@ -32,6 +32,12 @@
         <label class="field-label" for="text-input">Text</label>
         <textarea id="text-input" rows="6" placeholder="Type what you want the voice to say...">Hello! This is a clone of my voice, generated entirely on my own computer.</textarea>
 
+        <div class="ai-row">
+          <input id="ai-prompt-input" type="text" placeholder="Or describe a topic and let Gemini write it..." />
+          <button id="ai-script-btn" class="btn-secondary" title="Generate script with Gemini">✨ Write it</button>
+        </div>
+        <div id="ai-script-status" class="status"></div>
+
         <button id="generate-btn" class="btn-primary">Generate</button>
 
         <div id="generate-status" class="status"></div>
@@ -106,6 +112,13 @@
         Alternatively, set the <code>HF_TOKEN</code> environment variable before starting the
         server, or run <code>hf auth login</code> in the activated virtual environment — either
         works instead of entering a token here.
+      </p>
+
+      <label class="field-label">Gemini script assist</label>
+      <div id="gemini-status-badge" class="badge"></div>
+      <p class="hint">
+        Set the <code>GEMINI_API_KEY</code> environment variable (e.g. in a <code>.env</code> file)
+        and restart the server to enable the "✨ Write it" script-assist button.
       </p>
     </div>
   </div>

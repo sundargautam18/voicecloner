@@ -102,6 +102,7 @@ python -m uvicorn backend.app:app --host 0.0.0.0 --port 8000
 - **Built-in voices** are listed automatically (alba, cosette, marius, ...).
 - **Clone a voice**: click "+ Clone" in the sidebar, name it, then either upload a clean 5-30s `.wav`/`.mp3`/`.flac`/`.ogg` sample of a single speaker, or record yourself directly in the browser (grant microphone permission when prompted). The cloned voice is saved to `voices/*.safetensors` and appears in the voice list for reuse across sessions.
 - **Generate speech**: pick a voice, type text, click Generate. Play it back or download the `.wav`.
+- **Generate video**: click "🎬 Generate video" to render an `.mp4` of the same speech. The script is split into scenes; Gemini generates a background image per scene (each conditioned on the previous one to keep a consistent art style, like a simple animated short), and they're crossfaded together with a subtle pan/zoom and animated, fading subtitles, timed to match the audio. Everything is rendered locally with a bundled `ffmpeg`. Requires `GEMINI_API_KEY` (see Configuration).
 - **Delete a cloned voice**: hover it in the sidebar and click the trash icon. Built-in voices can't be deleted.
 
 ## Configuration

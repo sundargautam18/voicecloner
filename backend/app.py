@@ -4,6 +4,7 @@ import io
 import json
 import logging
 import os
+import re
 import subprocess
 import tempfile
 import textwrap
@@ -22,6 +23,7 @@ from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from google import genai
 from google.genai import errors as genai_errors
+from google.genai import types as genai_types
 from pocket_tts import TTSModel
 from pocket_tts.utils.utils import _ORIGINS_OF_PREDEFINED_VOICES
 
@@ -41,6 +43,11 @@ ALLOWED_UPLOAD_SUFFIXES = {".wav", ".mp3", ".flac", ".ogg"}
 GEMINI_MODEL = "gemini-flash-latest"
 GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image"
 FFMPEG_EXE = imageio_ffmpeg.get_ffmpeg_exe()
+MAX_VIDEO_SCENES = 8
+MIN_SCENE_SECONDS = 1.2
+TARGET_SCENE_SECONDS = 3.0
+SCENE_TRANSITION_SECONDS = 0.5
+SUBTITLE_FADE_SECONDS = 0.4
 FONT_CANDIDATES = [
     Path("C:/Windows/Fonts/arial.ttf"),
     Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
@@ -124,6 +131,69 @@ def tensor_to_wav_bytes(audio, sample_rate: int) -> bytes:
     return buffer.getvalue()
 
 
+def split_into_scenes(text: str, max_scenes: int) -> list[str]:
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text.strip()) if s.strip()]
+    if not sentences:
+        return [text]
+    max_scenes = max(1, min(max_scenes, len(sentences)))
+    groups: list[list[str]] = [[] for _ in range(max_scenes)]
+    for i, sentence in enumerate(sentences):
+        groups[i * max_scenes // len(sentences)].append(sentence)
+    return [" ".join(group) for group in groups if group]
+
+
+def scene_durations_for(scenes: list[str], total_duration: float) -> list[float]:
+    total_len = sum(len(s) for s in scenes) or 1
+    durations = [max(MIN_SCENE_SECONDS, total_duration * (len(s) / total_len)) for s in scenes]
+    durations[-1] = max(MIN_SCENE_SECONDS, durations[-1] + (total_duration - sum(durations)))
+    return durations
+
+
+def generate_background_image(
+    client: "genai.Client",
+    text: str,
+    previous_image: bytes | None,
+    scene_index: int,
+    total_scenes: int,
+) -> bytes:
+    if previous_image is None:
+        contents = (
+            "Create a background illustration for the opening scene of a short narrated video. "
+            f'The scene\'s narration: "{text[:500]}". '
+            "Establish a cohesive illustrated art style, cinematic lighting, 16:9 widescreen. "
+            "Do not include any text, letters, words, logos, watermarks, or human faces in the image."
+        )
+    else:
+        contents = [
+            genai_types.Part.from_bytes(data=previous_image, mime_type="image/png"),
+            (
+                f"This is scene {scene_index + 1} of {total_scenes} in the same continuous illustrated video. "
+                "Keep the exact same art style, color palette, and lighting as the reference image, but change "
+                f'the depicted content to match this scene\'s narration: "{text[:500]}". '
+                "16:9 widescreen. Do not include any text, letters, words, logos, watermarks, or human faces."
+            ),
+        ]
+    try:
+        response = client.models.generate_content(model=GEMINI_IMAGE_MODEL, contents=contents)
+    except genai_errors.APIError as exc:
+        raise HTTPException(status_code=502, detail=f"Gemini image request failed: {exc}") from exc
+
+    for part in response.candidates[0].content.parts:
+        if part.inline_data and part.inline_data.data:
+            return part.inline_data.data
+    raise HTTPException(status_code=502, detail="Gemini did not return an image.")
+
+
+def generate_scene_images(client: "genai.Client", scenes: list[str]) -> list[bytes]:
+    images: list[bytes] = []
+    previous_image = None
+    for i, scene_text in enumerate(scenes):
+        image = generate_background_image(client, scene_text, previous_image, i, len(scenes))
+        images.append(image)
+        previous_image = image
+    return images
+
+
 def find_caption_font() -> Path | None:
     for candidate in FONT_CANDIDATES:
         if candidate.exists():
@@ -135,70 +205,86 @@ def escape_ffmpeg_path(path: str) -> str:
     return path.replace("\\", "/").replace(":", "\\:")
 
 
-def generate_background_image(client: "genai.Client", text: str) -> bytes:
-    prompt = (
-        "Create a visually fitting background image for a short narrated video. "
-        f'The narration is about: "{text[:500]}". '
-        "Style: cinematic, atmospheric, high quality, 16:9 widescreen. "
-        "Do not include any text, letters, words, logos, watermarks, or human faces in the image."
-    )
-    try:
-        response = client.models.generate_content(model=GEMINI_IMAGE_MODEL, contents=prompt)
-    except genai_errors.APIError as exc:
-        raise HTTPException(status_code=502, detail=f"Gemini image request failed: {exc}") from exc
+def build_video_bytes(
+    scene_images: list[bytes],
+    scene_texts: list[str],
+    scene_durations: list[float],
+    wav_bytes: bytes,
+) -> bytes:
+    fps = 25
+    n = len(scene_images)
+    t = SCENE_TRANSITION_SECONDS
+    font = find_caption_font()
 
-    for part in response.candidates[0].content.parts:
-        if part.inline_data and part.inline_data.data:
-            return part.inline_data.data
-    raise HTTPException(status_code=502, detail="Gemini did not return an image.")
+    if n > 1:
+        durations = [d + t for d in scene_durations[:-1]] + [scene_durations[-1]]
+    else:
+        durations = list(scene_durations)
 
-
-def build_video_bytes(image_bytes: bytes, wav_bytes: bytes, duration_seconds: float, caption: str) -> bytes:
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
-        image_path = tmp_path / "background.png"
         audio_path = tmp_path / "audio.wav"
-        caption_path = tmp_path / "caption.txt"
+        audio_path.write_bytes(wav_bytes)
         output_path = tmp_path / "output.mp4"
 
-        image_path.write_bytes(image_bytes)
-        audio_path.write_bytes(wav_bytes)
+        cmd = [FFMPEG_EXE, "-y"]
+        filter_parts = []
+        for i, (image_bytes, scene_text, duration) in enumerate(zip(scene_images, scene_texts, durations)):
+            image_path = tmp_path / f"scene_{i}.png"
+            image_path.write_bytes(image_bytes)
+            cmd += ["-loop", "1", "-t", f"{duration:.3f}", "-i", str(image_path)]
+            frames = max(1, round(duration * fps))
 
-        wrapped_lines = textwrap.wrap(caption, width=42) or [""]
-        fontsize = 32 if len(wrapped_lines) <= 6 else max(20, int(32 * 6 / len(wrapped_lines)))
-        caption_path.write_text("\n".join(wrapped_lines), encoding="utf-8")
+            caption_path = tmp_path / f"caption_{i}.txt"
+            wrapped_lines = textwrap.wrap(scene_text, width=42) or [""]
+            fontsize = 30 if len(wrapped_lines) <= 4 else max(20, int(30 * 4 / len(wrapped_lines)))
+            caption_path.write_text("\n".join(wrapped_lines), encoding="utf-8")
 
-        fps = 25
-        frames = max(1, round(duration_seconds * fps))
+            fade_out_start = max(0.0, duration - SUBTITLE_FADE_SECONDS)
+            alpha_expr = (
+                f"if(lt(t,{SUBTITLE_FADE_SECONDS}),t/{SUBTITLE_FADE_SECONDS},"
+                f"if(gt(t,{fade_out_start:.3f}),({duration:.3f}-t)/{SUBTITLE_FADE_SECONDS},1))"
+            )
+            drawtext_opts = [
+                f"textfile='{escape_ffmpeg_path(str(caption_path))}'",
+                f"fontsize={fontsize}",
+                "fontcolor=white",
+                "borderw=2",
+                "bordercolor=black@0.7",
+                "line_spacing=6",
+                "x=(w-text_w)/2",
+                "y=h-text_h-60",
+                f"alpha='{alpha_expr}'",
+            ]
+            if font:
+                drawtext_opts.insert(0, f"fontfile='{escape_ffmpeg_path(str(font))}'")
+            drawtext_filter = "drawtext=" + ":".join(drawtext_opts)
 
-        video_filter = (
-            "scale=1280:720:force_original_aspect_ratio=increase,"
-            "crop=1280:720,"
-            f"zoompan=z='min(zoom+0.0012,1.2)':d={frames}:s=1280x720:fps={fps},"
-            "setsar=1"
-        )
+            filter_parts.append(
+                f"[{i}:v]scale=1280:720:force_original_aspect_ratio=increase,"
+                f"crop=1280:720,zoompan=z='min(zoom+0.0015,1.2)':d={frames}:s=1280x720:fps={fps},"
+                f"format=yuv420p,setsar=1,{drawtext_filter}[v{i}]"
+            )
+        cmd += ["-i", str(audio_path)]
 
-        drawtext_opts = [
-            f"textfile='{escape_ffmpeg_path(str(caption_path))}'",
-            f"fontsize={fontsize}",
-            "fontcolor=white",
-            "borderw=2",
-            "bordercolor=black@0.7",
-            "line_spacing=6",
-            "x=(w-text_w)/2",
-            "y=h-text_h-50",
-        ]
-        font = find_caption_font()
-        if font:
-            drawtext_opts.insert(0, f"fontfile='{escape_ffmpeg_path(str(font))}'")
-        drawtext_filter = "drawtext=" + ":".join(drawtext_opts)
+        if n == 1:
+            vout_label = "v0"
+        else:
+            label = "v0"
+            cumulative = durations[0]
+            for i in range(1, n):
+                offset = cumulative - t * i
+                out_label = f"x{i}" if i < n - 1 else "vout"
+                filter_parts.append(
+                    f"[{label}][v{i}]xfade=transition=fade:duration={t}:offset={offset:.3f}[{out_label}]"
+                )
+                cumulative += durations[i]
+                label = out_label
+            vout_label = "vout"
 
-        cmd = [
-            FFMPEG_EXE, "-y",
-            "-loop", "1", "-i", str(image_path),
-            "-i", str(audio_path),
-            "-filter:v", f"{video_filter},{drawtext_filter}",
-            "-map", "0:v", "-map", "1:a",
+        cmd += [
+            "-filter_complex", ";".join(filter_parts),
+            "-map", f"[{vout_label}]", "-map", f"{n}:a",
             "-c:v", "libx264", "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-b:a", "192k",
             "-shortest", "-movflags", "+faststart",
@@ -310,9 +396,13 @@ def generate_video(text: str = Form(...), voice_id: str = Form(...)):
     duration_seconds = len(samples) / model.sample_rate
     wav_bytes = tensor_to_wav_bytes(audio, model.sample_rate)
 
+    target_scenes = max(1, round(duration_seconds / TARGET_SCENE_SECONDS))
+    scenes = split_into_scenes(text, max_scenes=min(MAX_VIDEO_SCENES, target_scenes))
+    scene_durations = scene_durations_for(scenes, duration_seconds)
+
     client = genai.Client(api_key=api_key)
-    image_bytes = generate_background_image(client, text)
-    video_bytes = build_video_bytes(image_bytes, wav_bytes, duration_seconds, text)
+    scene_images = generate_scene_images(client, scenes)
+    video_bytes = build_video_bytes(scene_images, scenes, scene_durations, wav_bytes)
 
     return Response(content=video_bytes, media_type="video/mp4")
 
